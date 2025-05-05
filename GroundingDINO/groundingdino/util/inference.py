@@ -63,15 +63,15 @@ def batch_predict(
 
     model = model.to(device)
     images = images.to(device)
-
+    model.eval()
+    
     with torch.no_grad():
         outputs = model(images, captions=[caption]*images.shape[0])
     
     
-    tokenizer = model.tokenizer
+    tokenized = model.tokenizer(caption)
     prediction_logits = outputs["pred_logits"].sigmoid().cpu()
     prediction_boxes = outputs["pred_boxes"].cpu()
-    tokenized = tokenizer(caption)
 
     max_logits = prediction_logits.max(dim=2).values  # (B, nq)
     keep_mask = max_logits > box_threshold  # (B, nq)
@@ -83,7 +83,7 @@ def batch_predict(
     for i in range(prediction_logits.shape[0]):
         logits_i = prediction_logits[i][keep_mask[i]]  # (n_i, 256)
         boxes_i = prediction_boxes[i][keep_mask[i]]  # (n_i, 4)
-        phrases_i = [get_phrases_from_posmap(logit > text_threshold, tokenized, tokenizer).replace(".", "") for logit in logits_i]
+        phrases_i = [get_phrases_from_posmap(logit > text_threshold, tokenized, model.tokenizer).replace(".", "") for logit in logits_i]
         logits_list.append(logits_i.max(dim=1).values)  # (n_i,)
         boxes_list.append(boxes_i)
         phrases_list.append(phrases_i)
