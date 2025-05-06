@@ -21,7 +21,13 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from torchvision.ops.boxes import nms
-from transformers import AutoTokenizer, BertModel, BertTokenizer, RobertaModel, RobertaTokenizerFast
+from transformers import (
+    AutoTokenizer,
+    BertModel,
+    BertTokenizer,
+    RobertaModel,
+    RobertaTokenizerFast,
+)
 
 from groundingdino.util import box_ops, get_tokenlizer
 from groundingdino.util.misc import (
@@ -105,19 +111,27 @@ class GroundingDINO(nn.Module):
         self.dn_labelbook_size = dn_labelbook_size
 
         # bert
-        self.tokenizer = get_tokenlizer.get_tokenlizer(text_encoder_type, bert_base_uncased_path)
-        self.bert = get_tokenlizer.get_pretrained_language_model(text_encoder_type, bert_base_uncased_path)
+        self.tokenizer = get_tokenlizer.get_tokenlizer(
+            text_encoder_type, bert_base_uncased_path
+        )
+        self.bert = get_tokenlizer.get_pretrained_language_model(
+            text_encoder_type, bert_base_uncased_path
+        )
         self.bert.pooler.dense.weight.requires_grad_(False)
         self.bert.pooler.dense.bias.requires_grad_(False)
         self.bert = BertModelWarper(bert_model=self.bert)
 
-        self.feat_map = nn.Linear(self.bert.config.hidden_size, self.hidden_dim, bias=True)
+        self.feat_map = nn.Linear(
+            self.bert.config.hidden_size, self.hidden_dim, bias=True
+        )
         nn.init.constant_(self.feat_map.bias.data, 0)
         nn.init.xavier_uniform_(self.feat_map.weight.data)
         # freeze
 
         # special tokens
-        self.specical_tokens = self.tokenizer.convert_tokens_to_ids(["[CLS]", "[SEP]", ".", "?"])
+        self.specical_tokens = self.tokenizer.convert_tokens_to_ids(
+            ["[CLS]", "[SEP]", ".", "?"]
+        )
 
         # prepare input projection layers
         if num_feature_levels > 1:
@@ -134,14 +148,18 @@ class GroundingDINO(nn.Module):
             for _ in range(num_feature_levels - num_backbone_outs):
                 input_proj_list.append(
                     nn.Sequential(
-                        nn.Conv2d(in_channels, hidden_dim, kernel_size=3, stride=2, padding=1),
+                        nn.Conv2d(
+                            in_channels, hidden_dim, kernel_size=3, stride=2, padding=1
+                        ),
                         nn.GroupNorm(32, hidden_dim),
                     )
                 )
                 in_channels = hidden_dim
             self.input_proj = nn.ModuleList(input_proj_list)
         else:
-            assert two_stage_type == "no", "two_stage_type should be no if num_feature_levels=1 !!!"
+            assert (
+                two_stage_type == "no"
+            ), "two_stage_type should be no if num_feature_levels=1 !!!"
             self.input_proj = nn.ModuleList(
                 [
                     nn.Sequential(
@@ -168,12 +186,17 @@ class GroundingDINO(nn.Module):
         nn.init.constant_(_bbox_embed.layers[-1].bias.data, 0)
 
         if dec_pred_bbox_embed_share:
-            box_embed_layerlist = [_bbox_embed for i in range(transformer.num_decoder_layers)]
+            box_embed_layerlist = [
+                _bbox_embed for i in range(transformer.num_decoder_layers)
+            ]
         else:
             box_embed_layerlist = [
-                copy.deepcopy(_bbox_embed) for i in range(transformer.num_decoder_layers)
+                copy.deepcopy(_bbox_embed)
+                for i in range(transformer.num_decoder_layers)
             ]
-        class_embed_layerlist = [_class_embed for i in range(transformer.num_decoder_layers)]
+        class_embed_layerlist = [
+            _class_embed for i in range(transformer.num_decoder_layers)
+        ]
         self.bbox_embed = nn.ModuleList(box_embed_layerlist)
         self.class_embed = nn.ModuleList(class_embed_layerlist)
         self.transformer.decoder.bbox_embed = self.bbox_embed
@@ -181,9 +204,10 @@ class GroundingDINO(nn.Module):
 
         # two stage
         self.two_stage_type = two_stage_type
-        assert two_stage_type in ["no", "standard"], "unknown param {} of two_stage_type".format(
-            two_stage_type
-        )
+        assert two_stage_type in [
+            "no",
+            "standard",
+        ], "unknown param {} of two_stage_type".format(two_stage_type)
         if two_stage_type != "no":
             if two_stage_bbox_embed_share:
                 assert dec_pred_bbox_embed_share
@@ -210,30 +234,10 @@ class GroundingDINO(nn.Module):
     def init_ref_points(self, use_num_queries):
         self.refpoint_embed = nn.Embedding(use_num_queries, self.query_dim)
 
-    def forward(self, samples: NestedTensor, targets: List = None, **kw):
-        """The forward expects a NestedTensor, which consists of:
-           - samples.tensor: batched images, of shape [batch_size x 3 x H x W]
-           - samples.mask: a binary mask of shape [batch_size x H x W], containing 1 on padded pixels
+    def encode_captions(self, captions: list[str], device: str):
 
-        It returns a dict with the following elements:
-           - "pred_logits": the classification logits (including no-object) for all queries.
-                            Shape= [batch_size x num_queries x num_classes]
-           - "pred_boxes": The normalized boxes coordinates for all queries, represented as
-                           (center_x, center_y, width, height). These values are normalized in [0, 1],
-                           relative to the size of each individual image (disregarding possible padding).
-                           See PostProcess for information on how to retrieve the unnormalized bounding box.
-           - "aux_outputs": Optional, only returned when auxilary losses are activated. It is a list of
-                            dictionnaries containing the two above keys for each decoder layer.
-        """
-        if targets is None:
-            captions = kw["captions"]
-        else:
-            captions = [t["caption"] for t in targets]
-        len(captions)
-
-        # encoder texts
         tokenized = self.tokenizer(captions, padding="longest", return_tensors="pt").to(
-            samples.device
+            device
         )
         (
             text_self_attention_masks,
@@ -249,12 +253,18 @@ class GroundingDINO(nn.Module):
             ]
             position_ids = position_ids[:, : self.max_text_len]
             tokenized["input_ids"] = tokenized["input_ids"][:, : self.max_text_len]
-            tokenized["attention_mask"] = tokenized["attention_mask"][:, : self.max_text_len]
-            tokenized["token_type_ids"] = tokenized["token_type_ids"][:, : self.max_text_len]
+            tokenized["attention_mask"] = tokenized["attention_mask"][
+                :, : self.max_text_len
+            ]
+            tokenized["token_type_ids"] = tokenized["token_type_ids"][
+                :, : self.max_text_len
+            ]
 
         # extract text embeddings
         if self.sub_sentence_present:
-            tokenized_for_encoder = {k: v for k, v in tokenized.items() if k != "attention_mask"}
+            tokenized_for_encoder = {
+                k: v for k, v in tokenized.items() if k != "attention_mask"
+            }
             tokenized_for_encoder["attention_mask"] = text_self_attention_masks
             tokenized_for_encoder["position_ids"] = position_ids
         else:
@@ -263,7 +273,9 @@ class GroundingDINO(nn.Module):
 
         bert_output = self.bert(**tokenized_for_encoder)  # bs, 195, 768
 
-        encoded_text = self.feat_map(bert_output["last_hidden_state"])  # bs, 195, d_model
+        encoded_text = self.feat_map(
+            bert_output["last_hidden_state"]
+        )  # bs, 195, d_model
         text_token_mask = tokenized.attention_mask.bool()  # bs, 195
         # text_token_mask: True for nomask, False for mask
         # text_self_attention_masks: True for nomask, False for mask
@@ -276,15 +288,39 @@ class GroundingDINO(nn.Module):
                 :, : self.max_text_len, : self.max_text_len
             ]
 
-        text_dict = {
+        return {
             "encoded_text": encoded_text,  # bs, 195, d_model
             "text_token_mask": text_token_mask,  # bs, 195
             "position_ids": position_ids,  # bs, 195
             "text_self_attention_masks": text_self_attention_masks,  # bs, 195,195
         }
 
-        # import ipdb; ipdb.set_trace()
+    def forward(
+        self, samples: NestedTensor, targets: List = None, text_dict: dict = None, **kw
+    ):
+        """The forward expects a NestedTensor, which consists of:
+           - samples.tensor: batched images, of shape [batch_size x 3 x H x W]
+           - samples.mask: a binary mask of shape [batch_size x H x W], containing 1 on padded pixels
 
+        It returns a dict with the following elements:
+           - "pred_logits": the classification logits (including no-object) for all queries.
+                            Shape= [batch_size x num_queries x num_classes]
+           - "pred_boxes": The normalized boxes coordinates for all queries, represented as
+                           (center_x, center_y, width, height). These values are normalized in [0, 1],
+                           relative to the size of each individual image (disregarding possible padding).
+                           See PostProcess for information on how to retrieve the unnormalized bounding box.
+           - "aux_outputs": Optional, only returned when auxilary losses are activated. It is a list of
+                            dictionnaries containing the two above keys for each decoder layer.
+        """
+
+        if not text_dict:
+            if targets is None:
+                captions = kw["captions"]
+            else:
+                captions = [t["caption"] for t in targets]
+            text_dict = self.encode_captions(captions=captions, device=samples.device)
+
+        # import ipdb; ipdb.set_trace()
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
         features, poss = self.backbone(samples)
@@ -304,7 +340,9 @@ class GroundingDINO(nn.Module):
                 else:
                     src = self.input_proj[l](srcs[-1])
                 m = samples.mask
-                mask = F.interpolate(m[None].float(), size=src.shape[-2:]).to(torch.bool)[0]
+                mask = F.interpolate(m[None].float(), size=src.shape[-2:]).to(
+                    torch.bool
+                )[0]
                 pos_l = self.backbone[1](NestedTensor(src, mask)).to(src.dtype)
                 srcs.append(src)
                 masks.append(mask)
@@ -369,12 +407,14 @@ def build_groundingdino(args):
     dn_labelbook_size = args.dn_labelbook_size
     dec_pred_bbox_embed_share = args.dec_pred_bbox_embed_share
     sub_sentence_present = args.sub_sentence_present
-    bert_base_uncased_path = args.bert_base_uncased_path if 'bert_base_uncased_path' in args else None
+    bert_base_uncased_path = (
+        args.bert_base_uncased_path if "bert_base_uncased_path" in args else None
+    )
 
     model = GroundingDINO(
         backbone,
         transformer,
-        num_queries=args.num_queries,        
+        num_queries=args.num_queries,
         bert_base_uncased_path=bert_base_uncased_path,
         aux_loss=True,
         iter_update=True,
