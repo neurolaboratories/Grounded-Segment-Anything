@@ -47,8 +47,8 @@ class Resize(object):
 def pre_process_image(image: Image.Image) -> tuple[np.ndarray, torch.Tensor]:
     transform = T.Compose(
         [
-            T.RandomResize([800], max_size=1333),
-            # Resize((800, 1200)),
+            # T.RandomResize([800], max_size=1333),
+            Resize((800, 1200)),
             T.ToTensor(),
             T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ]
@@ -56,6 +56,22 @@ def pre_process_image(image: Image.Image) -> tuple[np.ndarray, torch.Tensor]:
     image_np: np.ndarray = np.asarray(image)
     image_transformed, _ = transform(image, None)
     return image_np, image_transformed
+
+
+def pre_process_batch_images(
+    images: list[Image.Image],
+) -> tuple[list[np.ndarray], torch.Tensor]:
+    transform = T.Compose(
+        [
+            Resize((800, 1200)),
+            T.ToTensor(),
+            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ]
+    )
+    images_np = [np.asarray(image) for image in images]
+    tensors_list = [transform(img, None)[0] for img in images]
+    images_tensor = torch.stack(tensors_list)
+    return images_np, images_tensor
 
 
 def main(grounding_model, image_tensor: torch.tensor, text_dict: dict = None):
@@ -70,11 +86,23 @@ def main(grounding_model, image_tensor: torch.tensor, text_dict: dict = None):
     )
 
 
+def main_batch(grounding_model, images_tensor: torch.tensor, text_dict: dict = None):
+    boxes_list, logits_list, phrases_list = batch_predict(
+        grounding_model,
+        images_tensor,
+        caption=CAPTION,
+        box_threshold=0.3,
+        text_threshold=0.25,
+        text_dict=text_dict,
+        device="cuda",
+    )
+
+
 if __name__ == "__main__":
+    from tqdm import tqdm
 
     image_file = "/home/farouk-gpu/Grounded-Segment-Anything/scripts/data/a7d6a974-652b-4818-b7db-8fb6e9dbc896.jpg"
     batch_size = 4
-    num_requests = 2
     device = "cuda"
 
     grounding_model = load_model(
@@ -86,23 +114,40 @@ if __name__ == "__main__":
     grounding_model.eval()
     image = Image.open(image_file).convert("RGB")
     image_np, image_tensor = pre_process_image(image)
-    image_tensor = image_tensor.to(device)
+    # image_tensor = image_tensor.to(device)
 
     caption = preprocess_caption(caption=CAPTION)
-    text_dict_cached = grounding_model.encode_captions([caption], device=device)
+    # text_dict_cached = grounding_model.encode_captions([caption], device=device)
 
-    num_requests = 32
-    start_time = time.time()
-    for _ in range(num_requests):
-        main(grounding_model, image_tensor, text_dict=None)
-    print(f"Running inference with single image and no cache {time.time()-start_time}")
+    # num_requests = 64
+    # start_time = time.time()
+    # for _ in tqdm(range(num_requests)):
+    #     main(grounding_model, image_tensor, text_dict=None)
+    # print(f"Running inference with single image and no cache {time.time()-start_time}")
 
+    # start_time = time.time()
+    # caption = preprocess_caption(CAPTION)
+    # cached_text_dict = grounding_model.encode_captions(
+    #     captions=[caption], device=device
+    # )
+
+    # for _ in tqdm(range(0, num_requests)):
+    #     main(grounding_model, image_tensor, text_dict=cached_text_dict)
+    # print(f"Running inference with single image cache {time.time()-start_time}")
+
+    batch_size = 10
     start_time = time.time()
-    caption = preprocess_caption(CAPTION)
-    cached_text_dict = grounding_model.encode_captions(
-        captions=[caption], device=device
+    cached_text_dict_dict = grounding_model.encode_captions(
+        captions=[caption] * batch_size, device=device
     )
+    print(f"Running Batch caption encoding {time.time()-start_time}")
+    # cached_text_dict_dict.keys()
+    # images_np, image_tensors = pre_process_batch_images([image] * batch_size)
+    # # image_tensor = image_tensor.to(device)
 
-    for _ in range(num_requests):
-        main(grounding_model, image_tensor, text_dict=cached_text_dict)
-    print(f"Running inference with single image and no cache {time.time()-start_time}")
+    # start_time = time.time()
+    # for _ in tqdm(range(0, num_requests, batch_size)):
+    #     main_batch(grounding_model, image_tensors, text_dict=cached_text_dict_dict)
+    # print(
+    #     f"Running inference with batch images and cached embeddings {time.time()-start_time}"
+    # )

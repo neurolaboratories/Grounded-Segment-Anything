@@ -58,6 +58,7 @@ def batch_predict(
     caption: str,
     box_threshold: float,
     text_threshold: float,
+    text_dict: dict = None,
     device: str = "cuda",
 ) -> Tuple[torch.Tensor, torch.Tensor, List[str]]:
     caption = preprocess_caption(caption=caption)
@@ -67,7 +68,9 @@ def batch_predict(
     model.eval()
 
     with torch.no_grad():
-        outputs = model(images, captions=[caption] * images.shape[0])
+        outputs = model(
+            images, captions=[caption] * images.shape[0], text_dict=text_dict
+        )
 
     tokenized = model.tokenizer(caption)
     prediction_logits = outputs["pred_logits"].sigmoid().cpu()
