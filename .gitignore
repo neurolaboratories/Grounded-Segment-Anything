@@ -133,3 +133,8 @@ dmypy.json
 outputs/
 
 .idea/
+
+
+# Data folders
+
+data/
