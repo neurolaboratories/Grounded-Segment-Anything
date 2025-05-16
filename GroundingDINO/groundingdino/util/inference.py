@@ -55,29 +55,27 @@ def load_image(image_path: str) -> Tuple[np.array, torch.Tensor]:
 def batch_predict(
     model,
     images: torch.Tensor,
-    caption: str,
-    box_threshold: float,
-    text_threshold: float,
-    text_dict: dict = None,
-    device: str = "cuda",
+    captions: str,
+    box_thresholds: float,
+    text_thresholds: float,
+    device: str = "cuda"
 ) -> Tuple[torch.Tensor, torch.Tensor, List[str]]:
-    caption = preprocess_caption(caption=caption)
+    captions = [preprocess_caption(caption=caption) for caption in captions]
 
     model = model.to(device)
     images = images.to(device)
     model.eval()
-
+    
     with torch.no_grad():
-        outputs = model(
-            images, captions=[caption] * images.shape[0], text_dict=text_dict
-        )
-
-    tokenized = model.tokenizer(caption)
+        outputs = model(images, captions=captions)
+    
+    # TODO: We're tokenizing captions twice. Is it possible to pass the tokenized captions to the model?
+    tokenized_captions = [model.tokenizer(caption) for caption in captions]
     prediction_logits = outputs["pred_logits"].sigmoid().cpu()
     prediction_boxes = outputs["pred_boxes"].cpu()
 
     max_logits = prediction_logits.max(dim=2).values  # (B, nq)
-    keep_mask = max_logits > box_threshold  # (B, nq)
+    keep_mask = max_logits > torch.tensor(box_thresholds)  # (B, nq)
 
     logits_list = []
     boxes_list = []
@@ -86,12 +84,7 @@ def batch_predict(
     for i in range(prediction_logits.shape[0]):
         logits_i = prediction_logits[i][keep_mask[i]]  # (n_i, 256)
         boxes_i = prediction_boxes[i][keep_mask[i]]  # (n_i, 4)
-        phrases_i = [
-            get_phrases_from_posmap(
-                logit > text_threshold, tokenized, model.tokenizer
-            ).replace(".", "")
-            for logit in logits_i
-        ]
+        phrases_i = [get_phrases_from_posmap(logit > text_thresholds[i], tokenized_captions[i], model.tokenizer).replace(".", "") for logit in logits_i]
         logits_list.append(logits_i.max(dim=1).values)  # (n_i,)
         boxes_list.append(boxes_i)
         phrases_list.append(phrases_i)
