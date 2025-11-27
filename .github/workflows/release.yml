@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    defaults:
+      run:
+        working-directory: ./GroundingDINO
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: '${{ secrets.PACKAGE_WRITER_SA }}'
+
+      - name: Set up Python
+        id: setup-python
+        uses: actions/setup-python@v5
+        with:
+          # Roughly matches the version in pytorch/pytorch:1.13.1-cuda11.6-cudnn8-devel
+          python-version: '3.10'
+
+      - name: Load cached venv
+        id: cached-poetry-dependencies
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Install dependencies
+        if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+        run: pip install -r requirements.txt
+
+      - name: Install Google Artifact Registry keyring and twine
+        run: pip install keyrings.google-artifactregistry-auth twine wheel
+
+      - name: Publish to GCP Artifact Registry
+        run: |
+          python3 ./setup.py sdist bdist bdist_wheel
+          python3 -m twine upload --repository-url https://europe-west2-python.pkg.dev/internal-services-461707/nlb-python/ dist/*
