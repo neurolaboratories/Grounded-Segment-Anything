@@ -49,5 +49,5 @@ jobs:
 
       - name: Publish to GCP Artifact Registry
         run: |
-          python3 ./setup.py sdist bdist bdist_wheel
+          python3 ./setup.py bdist bdist_wheel
           python3 -m twine upload --repository-url https://europe-west2-python.pkg.dev/internal-services-461707/nlb-python/ dist/*
